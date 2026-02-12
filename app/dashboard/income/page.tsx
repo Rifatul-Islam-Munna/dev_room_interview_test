@@ -19,7 +19,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+
 import {
   Select,
   SelectContent,
@@ -35,6 +35,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Calendar } from "@/components/ui/calendar";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Plus,
   Search,
@@ -43,12 +49,15 @@ import {
   Trash2,
   TrendingUp,
   DollarSign,
-  Calendar,
+  Calendar as CalendarIcon,
   Layers,
   ChevronLeft,
   ChevronRight,
+  X,
 } from "lucide-react";
 import Link from "next/link";
+import { format } from "date-fns";
+import { cn } from "@/lib/utils";
 
 const client = hc<AppType>("/api");
 
@@ -101,15 +110,17 @@ export default function IncomePage() {
     hasPrevPage: false,
   });
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState("");
   const [filterCategory, setFilterCategory] = useState<string>("all");
   const [sortBy, setSortBy] = useState("date");
   const [sortOrder, setSortOrder] = useState("desc");
 
+  const [startDate, setStartDate] = useState<Date | undefined>(undefined);
+  const [endDate, setEndDate] = useState<Date | undefined>(undefined);
+
   useEffect(() => {
     fetchIncome();
     fetchStats();
-  }, [pagination.page, searchTerm, filterCategory, sortBy, sortOrder]);
+  }, [pagination.page, filterCategory, sortBy, sortOrder, startDate, endDate]); // 👈 ADD DATE DEPENDENCIES
 
   useEffect(() => {
     fetchCategories();
@@ -121,9 +132,14 @@ export default function IncomePage() {
       const params = new URLSearchParams({
         page: pagination.page.toString(),
         limit: pagination.limit.toString(),
+        sortBy,
+        sortOrder,
       });
 
       if (filterCategory !== "all") params.append("category", filterCategory);
+
+      if (startDate) params.append("startDate", startDate.toISOString());
+      if (endDate) params.append("endDate", endDate.toISOString());
 
       const res = await client.income.$get({
         query: Object.fromEntries(params),
@@ -141,7 +157,14 @@ export default function IncomePage() {
 
   const fetchStats = async () => {
     try {
-      const res = await client.income.stats.$get();
+      const params = new URLSearchParams();
+
+      if (startDate) params.append("startDate", startDate.toISOString());
+      if (endDate) params.append("endDate", endDate.toISOString());
+
+      const res = await client.income.stats.$get({
+        query: Object.fromEntries(params),
+      });
       const data = await res.json();
       setStats(data.stats);
       setCategoryStats(data.byCategory || []);
@@ -176,6 +199,11 @@ export default function IncomePage() {
     }
   };
 
+  const clearDateFilters = () => {
+    setStartDate(undefined);
+    setEndDate(undefined);
+  };
+
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("en-US", {
       style: "currency",
@@ -195,7 +223,6 @@ export default function IncomePage() {
 
   return (
     <div className="space-y-4 md:space-y-6 p-4 md:p-6">
-      {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold tracking-tight">
@@ -263,7 +290,7 @@ export default function IncomePage() {
             <CardTitle className="text-xs md:text-sm font-medium">
               Average
             </CardTitle>
-            <Calendar className="h-4 w-4 text-muted-foreground" />
+            <CalendarIcon className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             {stats ? (
@@ -311,40 +338,111 @@ export default function IncomePage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex flex-col gap-3 sm:flex-row">
-            {/* Filter by Category */}
-            <Select value={filterCategory} onValueChange={setFilterCategory}>
-              <SelectTrigger className="w-full sm:w-[200px]">
-                <SelectValue placeholder="All Categories" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Categories</SelectItem>
-                {categories.map((cat) => (
-                  <SelectItem key={cat._id} value={cat.name}>
-                    {cat.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          <div className="flex flex-col gap-3">
+            {/* First Row: Category and Sort */}
+            <div className="flex flex-col gap-3 sm:flex-row">
+              {/* Filter by Category */}
+              <Select value={filterCategory} onValueChange={setFilterCategory}>
+                <SelectTrigger className="w-full sm:w-[200px]">
+                  <SelectValue placeholder="All Categories" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Categories</SelectItem>
+                  {categories.map((cat) => (
+                    <SelectItem key={cat._id} value={cat.name}>
+                      {cat.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
 
-            <Select
-              value={`${sortBy}-${sortOrder}`}
-              onValueChange={(value) => {
-                const [by, order] = value.split("-");
-                setSortBy(by);
-                setSortOrder(order);
-              }}
-            >
-              <SelectTrigger className="w-full sm:w-[160px]">
-                <SelectValue placeholder="Sort" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="date-desc">Newest</SelectItem>
-                <SelectItem value="date-asc">Oldest</SelectItem>
-                <SelectItem value="amount-desc">High-Low</SelectItem>
-                <SelectItem value="amount-asc">Low-High</SelectItem>
-              </SelectContent>
-            </Select>
+              <Select
+                value={`${sortBy}-${sortOrder}`}
+                onValueChange={(value) => {
+                  const [by, order] = value.split("-");
+                  setSortBy(by);
+                  setSortOrder(order);
+                }}
+              >
+                <SelectTrigger className="w-full sm:w-[160px]">
+                  <SelectValue placeholder="Sort" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="date-desc">Newest</SelectItem>
+                  <SelectItem value="date-asc">Oldest</SelectItem>
+                  <SelectItem value="amount-desc">High-Low</SelectItem>
+                  <SelectItem value="amount-asc">Low-High</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <div className="flex-1">
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className={cn(
+                        "w-full justify-start text-left font-normal",
+                        !startDate && "text-muted-foreground",
+                      )}
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {startDate ? (
+                        format(startDate, "PPP")
+                      ) : (
+                        <span>Start date</span>
+                      )}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={startDate}
+                      onSelect={setStartDate}
+                      autoFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {/* End Date */}
+              <div className="flex-1">
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className={cn(
+                        "w-full justify-start text-left font-normal",
+                        !endDate && "text-muted-foreground",
+                      )}
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {endDate ? format(endDate, "PPP") : <span>End date</span>}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={endDate}
+                      onSelect={setEndDate}
+                      autoFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {(startDate || endDate) && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={clearDateFilters}
+                  className="shrink-0"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
           </div>
 
           <div className="hidden md:block rounded-md border">

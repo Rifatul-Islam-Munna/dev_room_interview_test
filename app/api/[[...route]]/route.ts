@@ -341,6 +341,8 @@ app.get("/income", async (c) => {
     const category = c.req.query("category");
     const startDate = c.req.query("startDate");
     const endDate = c.req.query("endDate");
+    const sortBy = c.req.query("sortBy") || "date";  // 👈 ADD THIS
+    const sortOrder = c.req.query("sortOrder") || "desc";  // 👈 ADD THIS
 
     const filter: any = { userId };
 
@@ -356,9 +358,13 @@ app.get("/income", async (c) => {
 
     const skip = (page - 1) * limit;
 
+    // Sort configuration  👈 ADD THIS
+    const sort: any = {};
+    sort[sortBy] = sortOrder === "asc" ? 1 : -1;
+
     const [income, total] = await Promise.all([
       Income.find(filter)
-        .sort({ date: -1 })
+        .sort(sort)  
         .skip(skip)
         .limit(limit)
         .lean(),
@@ -382,6 +388,7 @@ app.get("/income", async (c) => {
     return c.json({ error: "Failed to fetch income" }, 500);
   }
 });
+
 
 
 app.get("/income/stats", async (c) => {
